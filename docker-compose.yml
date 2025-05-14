@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+
   postgres:
     image: postgres:15.3-alpine3.18
     env_file:
@@ -10,24 +11,23 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       PGDATA: /var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: always
     networks:
       - app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   adminer:
     image: adminer
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     ports:
-      - ${ADMINER_PORT}:8080
+      - "${ADMINER_PORT}:8080"
     env_file:
       - .env
     restart: always
@@ -41,18 +41,13 @@ services:
       - .env
     command: >
       sh -c "
-      echo 'Waiting for PostgreSQL...';
-      while ! nc -z postgres 5432; do sleep 1; done;
-      echo 'PostgreSQL started';
-      python manage.py migrate;
-      python manage.py runserver 0.0.0.0:8000 &
-      python manage.py telegram
-      "
+      until pg_isready -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB}; do sleep 1; done &&
+      python3 manage.py migrate &&
+      python3 manage.py runserver 0.0.0.0:8000"
     volumes:
       - .:/app:delegated
-      - static_volume:/app/static
     ports:
-      - ${PORT}:8000
+      - "${PORT}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,4 +60,3 @@ networks:
 
 volumes:
   pgdata:
-  static_volume:
