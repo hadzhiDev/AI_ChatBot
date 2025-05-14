@@ -35,7 +35,9 @@ services:
     env_file:
       - .env
     command: sh -c "
-      python3 manage.py runserver 0.0.0.0:8000 & python3 manage.py telegram"
+      python3 manage.py migrate &&
+      python3 manage.py runserver 0.0.0.0:8000 & 
+      python3 manage.py telegram"
     volumes:
       - .:/app:delegated
     ports:
