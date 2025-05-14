@@ -43,7 +43,9 @@ services:
       sh -c "
       until pg_isready -h postgres -U ${POSTGRES_USER} -d ${POSTGRES_DB}; do sleep 1; done &&
       python3 manage.py migrate &&
-      python3 manage.py runserver 0.0.0.0:8000"
+      python3 manage.py runserver 0.0.0.0:8000 &
+      python3 manage.py telegram
+      "
     volumes:
       - .:/app:delegated
     ports:
