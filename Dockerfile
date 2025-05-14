@@ -8,11 +8,12 @@ ENV STATIC_ROOT /app/static
 # Create static directory
 RUN mkdir -p /app/static
 
-# Install system dependencies
+# Install system dependencies including netcat
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
-    ffmpeg \ 
+    ffmpeg \
+    netcat-openbsd \  
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
