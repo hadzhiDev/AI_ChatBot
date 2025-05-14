@@ -47,3 +47,9 @@ services:
     networks:
       - app
     restart: always
+
+networks:
+  app:
+
+volumes:
+  pgdata:
