@@ -151,6 +151,7 @@ class Message(models.Model):
         choices=[('photo', 'Photo'), ('audio', 'Audio'), ('voice', 'Voice')],
         blank=True, null=True
     )
+    is_read = models.BooleanField(default=False)
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
