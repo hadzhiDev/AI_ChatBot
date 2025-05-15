@@ -524,34 +524,47 @@ class TelegramBotManager:
     async def process_with_assistant(self, assistant, message_text, client, history=None, image_url=None):
         """Process the message with the OpenAI API (now supports images)"""
         try:
+            logger.info("Initializing OpenAI client...")
             client = OpenAI(api_key=settings.OPENAI_API_KEY)
-            
+
             messages = []
-            
+
             # System message
             if assistant.instructions:
+                logger.debug(f"Assistant instructions: {assistant.instructions}")
                 messages.append({'role': 'system', 'content': assistant.instructions})
-            
+            else:
+                logger.debug("No assistant instructions provided.")
+
             # Conversation history
             if history:
+                logger.debug(f"Loaded history with {len(history)} messages.")
                 messages.extend(history)
-            
+            else:
+                logger.debug("No conversation history provided.")
+
             # Build content array
             content = [{'type': 'text', 'text': message_text}]
-            
+            logger.debug(f"User message text: {message_text}")
+
             if image_url:
+                logger.debug(f"Including image URL in request: {image_url}")
                 content.append({
                     'type': 'image_url',
                     'image_url': {'url': image_url}
                 })
-            
-            messages.append({
+            else:
+                logger.debug("No image URL provided.")
+
+            user_message = {
                 'role': 'user',
                 'content': content
-            })
-            
+            }
+            messages.append(user_message)
+
             logger.info(f"Calling OpenAI with model: {assistant.model}")
-            
+            logger.debug(f"Payload to OpenAI: {messages}")
+
             # Make the API call
             response = await asyncio.to_thread(
                 client.chat.completions.create,
@@ -560,12 +573,20 @@ class TelegramBotManager:
                 temperature=assistant.config.get('temperature', 0.7),
                 max_tokens=assistant.config.get('max_tokens', 1000),
             )
-            
-            return response.choices[0].message.content
-            
+
+            reply = response.choices[0].message.content
+            logger.info("Received response from OpenAI.")
+            logger.debug(f"Response content: {reply}")
+            return reply
+
         except AuthenticationError as e:
+            import os
             logger.error("OpenAI Authentication Failed. Check your API key.")
+            logger.debug(f"Environment variable OPENAI_API_KEY: {os.getenv('OPENAI_API_KEY')}")
+            logger.debug(f"Exception: {e}")
             return "⚠️ Bot configuration error. Please contact support."
+
+
             
         except RateLimitError as e:
             logger.error("OpenAI Rate Limit Exceeded")
