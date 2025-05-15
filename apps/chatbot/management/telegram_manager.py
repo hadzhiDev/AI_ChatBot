@@ -45,13 +45,18 @@ class TelegramBotManager:
         self.updater = None
         self.active_chats = set()
         logger.info(f"Initializing TelegramBotManager for dashboard: {self.dashboard.name}")
-
     
     def register_handlers(self):
         """Register all command and message handlers"""
+        # Clear existing handlers first
+        self.application.handlers.clear()
+        
+        # Add new handlers
         self.application.add_handler(CommandHandler("start", self.start_command))
         self.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         self.application.add_handler(MessageHandler(filters.ALL, self.handle_other_messages))
+        
+        logger.info(f"Registered {len(self.application.handlers)} handlers")
 
     async def start_polling(self):
         """Start polling for updates"""
@@ -68,22 +73,36 @@ class TelegramBotManager:
         try:
             logger.info(f"Attempting to initialize bot with token (first 5 chars): {self.token[:5]}...")
             
-            # Create application with updater for polling
+            # Explicitly delete any existing webhook
             self.application = Application.builder().token(self.token).build()
-            self.updater = self.application.updater
+            await self.application.bot.delete_webhook(drop_pending_updates=True)
             
-            # Register handlers first
+            # Rebuild application with proper configuration
+            self.application = (
+                Application.builder()
+                .token(self.token)
+                .concurrent_updates(True)  # Enable concurrent updates
+                .build()
+            )
+            
+            # Register handlers
             self.register_handlers()
-            logger.info("Handlers registered successfully")
             
-            # Initialize and start
+            # Start polling with explicit parameters
             await self.application.initialize()
             await self.application.start()
             
-            # Start polling explicitly
-            await self.updater.start_polling()
-            logger.info("Polling started successfully")
+            # Start polling with error handling
+            self.updater = self.application.updater
+            if self.updater:
+                await self.updater.start_polling(
+                    poll_interval=0.5,
+                    timeout=10,
+                    drop_pending_updates=True,
+                    allowed_updates=Update.ALL_TYPES
+                )
             
+            # Verify bot is working
             self.bot = self.application.bot
             bot_info = await self.bot.get_me()
             logger.info(f"Bot initialized: @{bot_info.username} (ID: {bot_info.id})")
@@ -93,6 +112,10 @@ class TelegramBotManager:
         except Exception as e:
             logger.error(f"Failed to initialize Telegram bot: {str(e)}", exc_info=True)
             return False
+        
+    async def post_init(self, application):
+        """Callback after application initialization"""
+        logger.info("Application post-init complete")
 
     async def shutdown(self):
         """Shutdown the bot gracefully"""
@@ -144,11 +167,16 @@ class TelegramBotManager:
     async def handle_message(self, update: Update, context: CallbackContext):
         """Handle incoming text messages"""
         try:
-            logger.info(f"Raw update: {update.to_dict()}")
+            logger.info(f"Raw update received: {update}")
+            if update.message is None:
+                logger.warning("Update doesn't contain a message!")
+                return
+                
             user = update.effective_user
             chat = update.effective_chat
             message_text = update.message.text
-            logger.info(f"Received message from {user.id} in chat {chat.id}: {message_text[:50]}...")
+            
+            logger.info(f"Processing message from {user.id} in chat {chat.id}: {message_text}")
             
             if chat.id not in self.active_chats:
                 logger.warning(f"Chat {chat.id} not in active sessions")

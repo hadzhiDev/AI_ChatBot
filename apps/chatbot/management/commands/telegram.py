@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import time
+from asgiref.sync import sync_to_async
 from django.core.management.base import BaseCommand
 from django.db import DatabaseError
 from apps.chatbot.management.telegram_manager import TelegramBotManager
@@ -31,30 +32,63 @@ class Command(BaseCommand):
         )
         logging.getLogger('httpx').setLevel(logging.WARNING)
         
-        # Set up signal handler for graceful shutdown
-        import signal
-        signal.signal(signal.SIGINT, self.signal_handler)
-        signal.signal(signal.SIGTERM, self.signal_handler)
+        # Create and run the main async loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
-        # Main loop that keeps running
+        try:
+            # Run the main async function
+            loop.run_until_complete(self.async_main())
+        except KeyboardInterrupt:
+            self.stdout.write("\nReceived shutdown signal...")
+        finally:
+            self.shutdown_bots()
+            loop.close()
+            self.stdout.write("Telegram bot manager stopped.")
+
+    async def async_main(self):
+        """Main async loop"""
         while not self.shutdown_flag:
             try:
-                self.run_bot_manager()
+                # Get active messengers
+                messengers = await sync_to_async(list)(
+                    Messenger.objects.filter(
+                        messenger_type='telegram',
+                        is_active=True
+                    ).select_related('dashboard')
+                )
                 
-                # If no bots were initialized, wait before checking again
-                if not self.bot_managers:
-                    self.stdout.write("Waiting for Telegram bots to be configured...")
-                    time.sleep(60)  # Check every minute for new bots
-                else:
-                    # If bots are running, just keep the loop alive
-                    while not self.shutdown_flag:
-                        time.sleep(1)
+                if not messengers:
+                    self.stdout.write("No active Telegram messengers found.")
+                    await asyncio.sleep(60)
+                    continue
+                    
+                self.stdout.write(f"Found {len(messengers)} active Telegram messenger(s)")
+                
+                # Initialize all bots
+                current_bot_managers = []
+                for messenger in messengers:
+                    if any(m.messenger.id == messenger.id for m in self.bot_managers):
+                        continue
                         
+                    manager = TelegramBotManager(messenger)
+                    if await manager.initialize():  # Changed to direct await
+                        current_bot_managers.append(manager)
+                        self.bot_managers.append(manager)
+                        self.stdout.write(f"✓ Bot for {messenger.dashboard.name} initialized")
+                    
+                if not current_bot_managers:
+                    self.stdout.write("No new bots could be initialized")
+                    await asyncio.sleep(60)
+                    continue
+                    
+                # Keep running while bots are active
+                while not self.shutdown_flag and self.bot_managers:
+                    await asyncio.sleep(1)
+                    
             except Exception as e:
-                logger.error(f"Error in bot manager main loop: {str(e)}", exc_info=True)
-                time.sleep(30)  # Wait before retrying after error
-                
-        self.stdout.write("Telegram bot manager stopped.")
+                logger.error(f"Error in bot manager: {str(e)}", exc_info=True)
+                await asyncio.sleep(30)
 
     def signal_handler(self, signum, frame):
         """Handle shutdown signals"""
